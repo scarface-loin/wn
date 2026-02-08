@@ -6,14 +6,11 @@ from twilio.base.exceptions import TwilioRestException
 app = Flask(__name__)
 
 # --- CONFIGURATION ---
-# Récupération des variables d'environnement (configurées sur Onrender)
 account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
 auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-twilio_whatsapp_number = os.environ.get('TWILIO_WHATSAPP_NUMBER') # Le numéro Sandbox (ex: whatsapp:+14155238886)
-my_whatsapp_number = os.environ.get('MY_WHATSAPP_NUMBER')       # Votre numéro (ex: whatsapp:+237...)
+twilio_whatsapp_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')  # Ex: whatsapp:+14155238886
 
 # Initialisation du client Twilio
-# On vérifie si les clés sont présentes pour éviter de crasher au démarrage
 if account_sid and auth_token:
     client = Client(account_sid, auth_token)
 else:
@@ -22,38 +19,40 @@ else:
 
 @app.route('/')
 def index():
-    return "Serveur de Notification de Rendez-vous Actif 🟢"
+    return "Serveur Global Express - Notifications de Livraison 🚚"
 
-@app.route('/notify-appointment', methods=['POST'])
-def notify_appointment():
-    # 1. Vérification de sécurité de base
+@app.route('/notify-delivery', methods=['POST'])
+def notify_delivery():
+    # 1. Vérification des clés Twilio
     if not client:
         return jsonify({"status": "error", "message": "Serveur mal configuré (Clés Twilio manquantes)"}), 500
 
-    # 2. Récupération des données JSON envoyées
+    # 2. Récupération des données JSON
     data = request.get_json()
-
     if not data:
         return jsonify({"status": "error", "message": "Aucune donnée JSON reçue"}), 400
 
-    # 3. Extraction des champs (avec des valeurs par défaut si un champ manque)
-    appt_id = data.get('appointmentId', 'N/A')
-    customer = data.get('customerName', 'Inconnu')
-    date_rdv = data.get('date', 'Non spécifiée')
-    time_rdv = data.get('time', 'Non spécifiée')
-    reason = data.get('reason', 'Pas de motif')
-    status = data.get('status', 'pending')
+    # 3. Extraction des champs requis
+    phone_number = data.get('phoneNumber')  # Format: whatsapp:+237XXXXXXXXX
+    command_id = data.get('commandId')
     
-    # 4. Création du message WhatsApp formaté
-    # On utilise des émojis pour rendre la lecture rapide sur téléphone
+    # Validation
+    if not phone_number:
+        return jsonify({"status": "error", "message": "Le numéro de téléphone est requis (phoneNumber)"}), 400
+    if not command_id:
+        return jsonify({"status": "error", "message": "L'ID de commande est requis (commandId)"}), 400
+    
+    # S'assurer que le numéro commence par "whatsapp:"
+    if not phone_number.startswith('whatsapp:'):
+        phone_number = f'whatsapp:{phone_number}'
+    
+    # 4. Création du message de livraison
+    tracking_url = f"https://client-global-express.web.app/{command_id}/"
     whatsapp_message = (
-        f"📅 *Nouveau Rendez-vous : {status.upper()}*\n"
-        f"-------------------------------\n"
-        f"👤 *Client :* {customer}\n"
-        f"🕒 *Quand :* Le {date_rdv} à {time_rdv}\n"
-        f"📝 *Motif :* {reason}\n"
-        f"-------------------------------\n"
-        f"🆔 ID : {appt_id}"
+        f"Bonjour {phone_number.replace('whatsapp:', '')}, "
+        f"votre commande est en cours de livraison. "
+        f"Vous pouvez la suivre ici : {tracking_url} "
+        f"Merci de faire confiance à Global Express!"
     )
 
     try:
@@ -61,14 +60,16 @@ def notify_appointment():
         message = client.messages.create(
             body=whatsapp_message,
             from_=twilio_whatsapp_number,
-            to=my_whatsapp_number
+            to=phone_number
         )
         
-        print(f"Notification envoyée pour le RDV {appt_id}. SID: {message.sid}")
+        print(f"Notification envoyée pour commande {command_id}. SID: {message.sid}")
         return jsonify({
             "status": "success", 
-            "message": "Notification envoyée", 
-            "twilio_sid": message.sid
+            "message": "Notification de livraison envoyée", 
+            "twilio_sid": message.sid,
+            "sent_to": phone_number,
+            "command_id": command_id
         }), 200
 
     except TwilioRestException as e:
